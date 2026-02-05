@@ -12,8 +12,7 @@
  * @returns {Object}
  *   MCP tool response containing a `content` array with a single text item.
  */
-export const ok = (data, meta = {}) =>
-  envelope({ ok: true, data, meta });
+export const ok = (data, meta = {}) => envelope({ ok: true, data, meta });
 
 /**
  * Wraps a failed API-style result into an MCP-compatible tool response.
@@ -32,10 +31,10 @@ export const fail = (error, meta = {}) =>
     ok: false,
     data: null,
     meta,
-    error,
+    error: error instanceof Error ? error.message : String(error),
   });
 
-  /**
+/**
  * Internal helper that converts a normalized API-style envelope
  * into an MCP-compliant tool response.
  *
@@ -72,7 +71,7 @@ const envelope = ({ ok, data, meta, error }) => ({
           error,
         },
         null,
-        2
+        2,
       ),
     },
   ],
