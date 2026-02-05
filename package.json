@@ -1,0 +1,13 @@
+{
+  "name": "preflight-mcp",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Context-aware MCP server that preflights patient data and institutional knowledge before AI responses",
+  "type": "module"
+}
