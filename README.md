@@ -1,75 +1,86 @@
 # Preflight MCP Server – Developer Guide
 
 This document is for **developers working on Preflight**.
-It explains how to add new tools (endpoints), wire services, and follow the project conventions.
+It explains how to add new MCP tools, HTTP API routes, wire services, and follow the project conventions.
 
-If you are new to MCP: think of this project as a **backend API for AI**.
+If you are new to MCP: think of this project as a **backend API for AI**, with an optional **HTTP API for humans and testing**.
 
 ---
 
 ## Mental model
 
-- The **AI is the client**
-- MCP tools are **controllers**
-- Services contain **business logic**
-- Adapters handle **I/O (DB, APIs, files)**
+- The **AI** is a client (via MCP / stdio)
+- Humans & tools (Postman, curl) are clients (via HTTP API)
+- **MCP tools** are controllers
+- **HTTP routes** are controllers
+- **Services** contain business logic
+- **Adapters** handle I/O (DB, APIs, files)
 
 Rule of thumb:
 
-> Tools should read like controllers.  
-> Services should read like pure functions.
+> Controllers orchestrate.  
+> Services calculate.  
+> Adapters talk to the outside world.
 
 ---
 
 ## Directory responsibilities
 
 ```
-tools/      → Controllers (AI-facing)
-services/   → Business logic
-adapters/   → Data access / external systems
-schemas/    → Validation & contracts (Zod)
-utils/      → Shared helpers (envelope, etc.)
+tools/        → MCP controllers (AI-facing)
+services/     → Business logic (shared)
+adapters/     → Data access / external systems
+schemas/      → Validation & contracts (Zod)
+utils/        → Shared helpers (envelope, etc.)
+
+api/
+└── v1/       → HTTP API (human/testing clients)
 ```
 
 ### What NOT to do
-- ❌ Don’t fetch data directly inside tools
-- ❌ Don’t return raw objects from tools
+- ❌ Don’t fetch data directly inside tools or routes
+- ❌ Don’t return raw objects from MCP tools
 - ❌ Don’t put MCP logic inside services
+- ❌ Don’t duplicate business logic between MCP and HTTP
 
 ---
 
-## Adding a new tool (step-by-step)
+## Architecture overview
 
-Example: `patient.getSummary`
+```
+MCP Client ──▶ tools/*.tool.js ──▶ services/*.service.js ──▶ adapters/*
+HTTP Client ─▶ api/v1/*.route.js ─▶ services/*.service.js ─▶ adapters/*
+```
+
+- MCP tools and HTTP routes **share the same services**
+- Services are reusable and testable
+- Transport (MCP vs HTTP) is just an implementation detail
+
+---
+
+## Adding a new MCP tool
+
+Example: `system.dateTime`
 
 ### 1. Create the tool file
 
 ```
-tools/patient.js
+tools/system.tool.js
 ```
 
 ### 2. Register the tool
 
 ```js
-// tools/patient.js
+// tools/system.tool.js
 import { z } from "zod";
 import { ok, fail } from "../utils/index.js";
-import { patientService } from "../services/index.js";
+import { systemService } from "../services/system.service.js";
 
-export const registerPatientTools = (server) => {
+export const registerSystemTools = (server) => {
   server.tool(
-    "patient.getSummary",
-    {
-      patientId: z.string(),
-    },
-    async ({ patientId }) => {
-      try {
-        const data = await patientService.getSummary(patientId);
-        return ok(data);
-      } catch (err) {
-        return fail(err.message);
-      }
-    }
+    "system.dateTime",
+    { timezone: z.string().optional() },
+    systemDateTime,
   );
 };
 ```
@@ -77,92 +88,115 @@ export const registerPatientTools = (server) => {
 ### 3. Export from `tools/index.js`
 
 ```js
-// tools/index.js
-import { registerPatientTools } from "./patient.js";
+import { registerSystemTools } from "./system.tool.js";
 
 export const registerAllTools = (server) => {
-  registerPatientTools(server);
+  registerSystemTools(server);
 };
 ```
 
-That’s it. The AI can now call `patient.getSummary`.
+That’s it. The AI can now call `system.dateTime`.
 
 ---
 
 ## Writing services
 
-Services contain **domain logic only**.
+Services contain **pure domain logic** and are shared by MCP tools and HTTP routes.
 
 ```js
-// services/patient.service.js
-export const patientService = {
-  async getSummary(patientId) {
-    return {
-      id: patientId,
-      name: "Mock Patient",
-    };
-  },
+// services/system.service.js
+export const systemDateTime = async ({ timezone }) => {
+  try {
+    const tz = timezone ?? "UTC";
+    const now = new Date();
+
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      dateStyle: "short",
+      timeStyle: "medium",
+      hour12: false,
+    }).formatToParts(now);
+
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+
+    const date = `${get("year")}-${get("month")}-${get("day")}`;
+    const time = `${get("hour")}:${get("minute")}:${get("second")}`;
+
+    return ok({
+      dateTime: `${date}T${time}`,
+      date,
+      time,
+      timezone: tz,
+    });
+  } catch (error) {
+    return fail(error);
+  }
 };
 ```
 
 Rules:
 - No MCP imports
+- No Express imports
 - No Zod
-- No formatting logic
+- No envelopes
 
-Services should be reusable outside MCP.
+Services must be reusable everywhere.
 
 ---
 
-## Adapters (data access)
+## HTTP API (for testing & humans)
 
-Adapters are where I/O lives.
+The HTTP API lives under versioned folders.
 
-Examples:
-- Database queries
-- HTTP requests
-- File system access
-- FHIR / EHR calls
-
-```js
-// adapters/db.adapter.js
-export const dbAdapter = {
-  async getPatientById(id) {
-    // query DB here
-  },
-};
+```
+api/
+└── v1/
+    ├── index.js
+    └── system.route.js
 ```
 
-Adapters may:
-- Retry
-- Normalize data
-- Handle credentials
-
-Adapters must NOT:
-- Know about MCP
-- Know about AI prompts
-
----
-
-## Schemas
-
-Schemas define **input contracts**.
+### `api/v1/index.js`
 
 ```js
-import { z } from "zod";
+import { Router } from "express";
+import systemRoutes from "./system.route.js";
 
-export const patientIdSchema = z.string().uuid();
+const router = Router();
+
+router.use("/system", systemRoutes);
+
+export default router;
 ```
 
-Use schemas in tools only.
+### `api/v1/system.route.js`
+
+```js
+import { Router } from "express";
+import { systemDateTime, systemPing } from "../../tools/system.service.js";
+
+const router = Router();
+
+router.get("/datetime", async (req, res) => {
+  const timezone = req.query.timezone ?? "Asia/Manila";
+
+  const result = await systemDateTime({ timezone });
+  res.json(result);
+});
+
+export default router;
+```
+
+### Versioning
+
+- All HTTP routes live under `/api/v1`
+- Future versions go in `/api/v2`, `/api/v3`, etc.
+- MCP tools are versioned by name, not path
 
 ---
 
-## Returning responses (important)
+## Returning responses (MCP)
 
-All tools MUST return MCP-compatible responses.
-
-Always use the envelope helpers:
+All MCP tools MUST return MCP-compatible envelopes.
 
 ```js
 import { ok, fail } from "../utils/index.js";
@@ -170,67 +204,72 @@ import { ok, fail } from "../utils/index.js";
 return ok({ result: "value" });
 ```
 
-Never do:
-
-```js
-return { result: "value" }; // ❌
-```
-
-If you forget this, MCP clients will show empty results.
+Never return raw objects from tools.
 
 ---
 
 ## Error handling pattern
 
-- Validate input with Zod
-- Catch errors in tools
-- Return `fail()` with a safe message
+- Validate input at the boundary (tools / routes)
+- Catch errors in controllers
+- Return safe, user-facing messages
 
-Do NOT throw uncaught errors from tools.
+Do NOT throw uncaught errors from MCP tools.
 
 ---
 
 ## Local development
 
+### MCP server
+
 ```bash
-npm run dev
+npm run start
 ```
 
 Notes:
 - MCP uses stdio
 - Restarting breaks the client connection
-- Just reconnect the client when nodemon restarts
+- Reconnect the client after restart
+
+### HTTP API (recommended for dev)
+
+```bash
+npm run api:dev
+```
+
+- Uses nodemon
+- Safe hot reload
+- Ideal for Postman / curl testing
 
 ---
 
 ## Debugging tips
 
-- If tool returns `[]`, check the response shape
-- If tool doesn’t appear, check `tools/index.js`
-- Use MCP Inspector when in doubt
+- If a tool doesn’t appear, check `tools/index.js`
+- If results are empty, check the MCP envelope shape (`ok`, `data`, `meta`)
+- Use the MCP Inspector to introspect tools and responses
 
 ```bash
-npx @modelcontextprotocol/inspector@latest
+npm run mcp:inspect
 ```
 
 ---
 
 ## Design principles
 
-- Read first, answer second
-- Prefer explicit tools over guessing
-- Keep tools small
+- Keep controllers thin
 - Keep services pure
+- Share logic across transports
+- Version HTTP, name MCP tools clearly
 - Centralize protocol quirks in utils
 
 ---
 
 ## Checklist before committing
 
-- [ ] Tool registered in tools/index.js
-- [ ] Uses envelope helpers
-- [ ] Business logic in services
+- [ ] Tool file named `*.tool.js`
+- [ ] Tool registered in `tools/index.js`
+- [ ] Service file named `*.service.js`
+- [ ] Services reused by MCP and HTTP
 - [ ] No MCP imports outside tools
-- [ ] No raw returns
-
----
+- [ ] No raw returns from MCP tools

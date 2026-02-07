@@ -5,7 +5,10 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "api:start": "node api/server.js",
+    "api:dev": "nodemon api/server.js",
+    "mcp:inspect": "mcp-inspector"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +20,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.19.0",
     "nodemon": "^3.1.11"
   }
 }
