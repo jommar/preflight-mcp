@@ -1,20 +1,19 @@
 # Preflight MCP Server – Developer Guide
 
 This document is for **developers working on Preflight**.
-It explains how to add new MCP tools, HTTP API routes, wire services, and follow the project conventions.
+It explains how to add new MCP tools, wire services, and follow the project conventions.
 
-If you are new to MCP: think of this project as a **backend API for AI**, with an optional **HTTP API for humans and testing**.
+If you are new to MCP: think of this project as a **backend API for AI**.
 
 ---
 
 ## Mental model
 
 - The **AI** is a client (via MCP / stdio)
-- Humans & tools (Postman, curl) are clients (via HTTP API)
 - **MCP tools** are controllers
 - **HTTP routes** are controllers
 - **Services** contain business logic
-- **Adapters** handle I/O (DB, APIs, files)
+- **Adapters** handle I/O (DB, files)
 
 Rule of thumb:
 
@@ -32,9 +31,6 @@ services/     → Business logic (shared)
 adapters/     → Data access / external systems
 schemas/      → Validation & contracts (Zod)
 utils/        → Shared helpers (envelope, etc.)
-
-api/
-└── v1/       → HTTP API (human/testing clients)
 ```
 
 ### What NOT to do
@@ -49,7 +45,6 @@ api/
 
 ```
 MCP Client ──▶ tools/*.tool.js ──▶ services/*.service.js ──▶ adapters/*
-HTTP Client ─▶ api/v1/*.route.js ─▶ services/*.service.js ─▶ adapters/*
 ```
 
 - MCP tools and HTTP routes **share the same services**
@@ -144,56 +139,6 @@ Services must be reusable everywhere.
 
 ---
 
-## HTTP API (for testing & humans)
-
-The HTTP API lives under versioned folders.
-
-```
-api/
-└── v1/
-    ├── index.js
-    └── system.route.js
-```
-
-### `api/v1/index.js`
-
-```js
-import { Router } from "express";
-import systemRoutes from "./system.route.js";
-
-const router = Router();
-
-router.use("/system", systemRoutes);
-
-export default router;
-```
-
-### `api/v1/system.route.js`
-
-```js
-import { Router } from "express";
-import { systemDateTime, systemPing } from "../../tools/system.service.js";
-
-const router = Router();
-
-router.get("/datetime", async (req, res) => {
-  const timezone = req.query.timezone ?? "Asia/Manila";
-
-  const result = await systemDateTime({ timezone });
-  res.json(result);
-});
-
-export default router;
-```
-
-### Versioning
-
-- All HTTP routes live under `/api/v1`
-- Future versions go in `/api/v2`, `/api/v3`, etc.
-- MCP tools are versioned by name, not path
-
----
-
 ## Returning responses (MCP)
 
 All MCP tools MUST return MCP-compatible envelopes.
@@ -231,18 +176,6 @@ Notes:
 - Restarting breaks the client connection
 - Reconnect the client after restart
 
-### HTTP API (recommended for dev)
-
-```bash
-npm run api:dev
-```
-
-- Uses nodemon
-- Safe hot reload
-- Ideal for Postman / curl testing
-
----
-
 ## Debugging tips
 
 - If a tool doesn’t appear, check `tools/index.js`
@@ -260,7 +193,7 @@ npm run mcp:inspect
 - Keep controllers thin
 - Keep services pure
 - Share logic across transports
-- Version HTTP, name MCP tools clearly
+- Name MCP tools clearly
 - Centralize protocol quirks in utils
 
 ---
@@ -270,6 +203,6 @@ npm run mcp:inspect
 - [ ] Tool file named `*.tool.js`
 - [ ] Tool registered in `tools/index.js`
 - [ ] Service file named `*.service.js`
-- [ ] Services reused by MCP and HTTP
+- [ ] Services reused by MCP
 - [ ] No MCP imports outside tools
 - [ ] No raw returns from MCP tools
